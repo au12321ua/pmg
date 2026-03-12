@@ -14,15 +14,22 @@ def main():
         epilog="""
 Examples:
   pmg init                    # First time setup
-  pmg login mypassword        # Login with master password
+  pmg login                   # Login with master password
   pmg add github myuser       # Add password for github
   pmg get github              # Get password for github
   pmg gen google myuser       # Generate and save password
   pmg list                    # List all sites
   pmg status                  # Check login status
   pmg logout                  # Logout
+
+Session Management:
+  After login, a 6-digit session key will be generated. Use this key with other commands:
+  pmg --session-key|-k 123456 get github
         """
     )
+
+    # 添加全局会话密钥参数
+    parser.add_argument('--session-key', '-k', help='Session key for authentication')
 
     subparsers = parser.add_subparsers(dest='command', help='Command')
 
@@ -31,7 +38,7 @@ Examples:
 
     # login
     login_parser = subparsers.add_parser('login', help='Login with master password')
-    login_parser.add_argument('password', help='Master password')
+    # login_parser.add_argument('password', help='Master password')
 
     # logout
     subparsers.add_parser('logout', help='Logout')
@@ -81,14 +88,14 @@ Examples:
     args = parser.parse_args()
 
     # 创建核心实例
-    pm = PasswordManagerCore()
+    pm = PasswordManagerCore(session_key=args.session_key)
 
     # 处理命令
     try:
         if args.command == 'init':
             success = pm.init()
         elif args.command == 'login':
-            success = pm.login(args.password)
+            success = pm.login()
         elif args.command == 'logout':
             success = pm.logout()
         elif args.command == 'status':

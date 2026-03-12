@@ -5,15 +5,17 @@
 import os
 import sys
 import getpass
+import argparse
 from typing import Optional, Tuple
 from .crypto import CryptoManager
 from .session import SessionManager
+from .temp_session import TempSessionManager
 
 
 class PasswordManagerCore:
     """密码管理器核心"""
 
-    def __init__(self):
+    def __init__(self, session_key: str = None):
         # 确定数据目录
         if os.name == 'nt':  # Windows
             self.data_dir = os.path.join(os.environ.get('APPDATA', ''), '.pmg')
@@ -22,34 +24,88 @@ class PasswordManagerCore:
 
         self.crypto = CryptoManager(self.data_dir)
         self.session = SessionManager(self.data_dir)
+        self.temp_session = TempSessionManager(self.data_dir)
+        self.session_key = session_key
+
+        # 如果提供了会话密钥，加载临时会话
+        if session_key:
+            master_key = self.temp_session.load_temp_session(session_key)
+            if master_key:
+                self.crypto.master_key = master_key
+                # print(f"Session loaded with key: {session_key}")
+            else:
+                print(f"Error: Invalid session key or session expired")
 
     def ensure_authenticated(self) -> bool:
         """确保已认证"""
+        # 检查临时会话
+        if self.session_key and self.crypto.master_key:
+            if self.temp_session.is_valid():
+                return True
+            else:
+                print("Error: Session expired")
+                return False
+        else:
+            print("Error: Not login")
+            print("Use 'pmg login' first")
+            return False
+
+        """
+        # 检查传统会话
         if not self.session.is_valid():
             print("Error: Not authenticated or session expired")
             print("Use 'pmg login <password>' first")
             return False
         return True
+        """
 
-    def login(self, password: str) -> bool:
+    def login(self) -> bool:
         """登录"""
+        password = getpass.getpass("Master password: ")
+
         if not self.crypto.verify_master_password(password):
             print("Error: Invalid password")
             return False
 
-        # 创建会话
+        # 创建传统会话
         self.session.create_session(self.crypto.master_key)
+
+        # 创建临时会话并生成会话密钥
+        session_id, session_key = self.temp_session.create_temp_session(
+            self.crypto.master_key,
+            duration_minutes=10
+        )
+
         print("Logged in successfully")
+        print(f"Session key: {session_key} (valid for 10 minutes)")
+        print(f"Use with: pmg --session-key|-k {session_key} <command>")
         return True
 
     def logout(self) -> bool:
         """登出"""
         self.session.clear_session()
+        self.temp_session.clear_temp_session()
         print("Logged out")
         return True
 
     def status(self) -> bool:
         """查看状态"""
+        # 检查临时会话状态
+        if self.temp_session.is_valid():
+            remaining = self.temp_session.get_remaining_time()
+            if remaining:
+                minutes = int(remaining.total_seconds() / 60)
+                seconds = int(remaining.total_seconds() % 60)
+                print(f"Authenticated via session key (expires in {minutes}m {seconds}s)")
+            else:
+                print("Authenticated via session key")
+            return True
+        else:
+            print("Not authenticated")
+            return False
+
+        """
+        # 检查传统会话状态
         if self.session.is_valid():
             remaining = self.session.get_remaining_time()
             if remaining:
@@ -61,6 +117,7 @@ class PasswordManagerCore:
         else:
             print("Not authenticated")
             return False
+        """
 
     def add(self, site: str, username: str) -> bool:
         """添加密码"""
