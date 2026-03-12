@@ -1,0 +1,6 @@
+{
+  "salt": "OfHqIfFXS03wq+zmeqf0Yp0Oy40ieH0hKajsnc5D2BY=",
+  "master_hash": "$argon2id$v=19$m=65536,t=3,p=4$4IS/D35p78YAqT+SfW/3H56nV6mjoA7yN4yfkQ+7GVw$iKVI9kh9QGPzygRkw3BD3n0igYqb1mnbuhXWQDTMoIE",
+  "initialized_at": "2026-03-12T15:28:03.597237",
+  "version": "1.0"
+}
