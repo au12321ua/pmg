@@ -7,11 +7,10 @@ import sys
 import signal
 import logging
 import argparse
-from typing import Optional
 
 from .daemon import DaemonMain, DaemonManager, DaemonInfo, DaemonStatus
-from .ipc import IPCServer, Message, MessageType
-from .crypto import CryptoManager
+from ..utils.ipc import IPCServer, Message, MessageType
+from ..utils.crypto import CryptoManager, MultipleUsernamesError
 
 
 class DaemonCommandHandler:
@@ -109,18 +108,31 @@ class DaemonCommandHandler:
     def handle_get(self, args: dict) -> dict:
         """处理获取密码"""
         site = args.get('site')
+        username = args.get('username')
         if not site:
             return {'success': False, 'error': 'Site required'}
 
-        result = self.crypto_manager.get_entry(site)
+        try:
+            result = self.crypto_manager.get_entry(site, username)
+        except MultipleUsernamesError as e:
+            return {
+                'success': False,
+                'error': f"Multiple usernames found for site '{site}'",
+                'site': site,
+                'ambiguous': True,
+                'candidates': e.usernames
+            }
+
         if not result:
+            if username:
+                return {'success': False, 'error': f'Entry not found: {site}/{username}'}
             return {'success': False, 'error': f'Site not found: {site}'}
 
-        username, password = result
+        selected_username, password = result
         return {
             'success': True,
             'site': site,
-            'username': username,
+            'username': selected_username,
             'password': password
         }
 
@@ -132,11 +144,25 @@ class DaemonCommandHandler:
     def handle_delete(self, args: dict) -> dict:
         """处理删除站点"""
         site = args.get('site')
+        username = args.get('username')
         if not site:
             return {'success': False, 'error': 'Site required'}
 
-        success = self.crypto_manager.delete_entry(site)
-        return {'success': success, 'site': site}
+        try:
+            success = self.crypto_manager.delete_entry(site, username)
+        except MultipleUsernamesError as e:
+            return {
+                'success': False,
+                'error': f"Multiple usernames found for site '{site}'",
+                'site': site,
+                'ambiguous': True,
+                'candidates': e.usernames
+            }
+
+        if not success and username:
+            return {'success': False, 'site': site, 'username': username, 'error': f'Entry not found: {site}/{username}'}
+
+        return {'success': success, 'site': site, 'username': username}
 
     def handle_logout(self, args: dict) -> dict:
         """处理登出"""
@@ -154,7 +180,7 @@ class DaemonCommandHandler:
             return {'success': False, 'error': 'Site and username required'}
 
         # 生成密码
-        from .crypto import CryptoManager
+        from ..utils.crypto import CryptoManager
         password = CryptoManager.generate_password(length)
 
         # 保存
@@ -174,14 +200,15 @@ class DaemonCommandHandler:
 
             # 解密所有密码
             decrypted_data = {}
-            for site, entry in entries.items():
-                password = self.crypto_manager._decrypt_password(entry['password'])
-                decrypted_data[site] = {
-                    'username': entry['username'],
-                    'password': password,
-                    'created_at': entry.get('created_at', ''),
-                    'updated_at': entry.get('updated_at', '')
-                }
+            for site, site_entries in entries.items():
+                decrypted_data[site] = {}
+                for username, entry in site_entries.items():
+                    password = self.crypto_manager._decrypt_password(entry['password'])
+                    decrypted_data[site][username] = {
+                        'password': password,
+                        'created_at': entry.get('created_at', ''),
+                        'updated_at': entry.get('updated_at', '')
+                    }
 
             # 保存到文件
             import json
@@ -203,11 +230,20 @@ class DaemonCommandHandler:
             with open(filename, 'r') as f:
                 data = json.load(f)
 
+            if not isinstance(data, dict):
+                raise ValueError('Import data must be an object with site keys')
+
             # 导入每个条目
             count = 0
-            for site, entry in data.items():
-                if self.crypto_manager.add_entry(site, entry['username'], entry['password']):
-                    count += 1
+            for site, site_entries in data.items():
+                if not isinstance(site_entries, dict):
+                    raise ValueError(f"Invalid site data for '{site}'")
+
+                for username, entry in site_entries.items():
+                    if not isinstance(entry, dict) or 'password' not in entry:
+                        raise ValueError(f"Invalid entry format for '{site}/{username}'")
+                    if self.crypto_manager.add_entry(site, username, entry['password']):
+                        count += 1
 
             print(f"Imported {count} entries from {filename}")
             return True

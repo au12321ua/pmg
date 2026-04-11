@@ -4,10 +4,9 @@
 
 import argparse
 import sys
-import getpass
 import os
 
-from .client import InteractivePMGClient
+from .client.interactive_client import InteractivePMGClient
 
 
 def get_data_dir() -> str:
@@ -27,7 +26,7 @@ Examples:
   pmg init                    # First time setup
   pmg login                   # Login with master password
   pmg add github myuser       # Add password for github
-  pmg get github              # Get password for github
+  pmg get github myuser       # Get password for github/myuser
   pmg gen google myuser       # Generate and save password
   pmg list                    # List all sites
   pmg status                  # Check login status
@@ -35,7 +34,7 @@ Examples:
 
 Session Management:
   After login, a 6-digit session key will be generated. Use this key with other commands:
-  pmg --session-key|-k 123456 get github
+    pmg --session-key|-k 123456 get github myuser
         """
     )
 
@@ -64,6 +63,7 @@ Session Management:
     # get
     get_parser = subparsers.add_parser('get', help='Get password for a site')
     get_parser.add_argument('site', help='Site name')
+    get_parser.add_argument('username', nargs='?', help='Username/email (optional)')
 
     # list
     subparsers.add_parser('list', help='List all sites')
@@ -71,6 +71,7 @@ Session Management:
     # delete
     delete_parser = subparsers.add_parser('delete', help='Delete a site')
     delete_parser.add_argument('site', help='Site name')
+    delete_parser.add_argument('username', nargs='?', help='Username/email (optional)')
 
     # gen
     gen_parser = subparsers.add_parser('gen', help='Generate and save password')
@@ -103,12 +104,7 @@ Session Management:
         client = InteractivePMGClient()
 
         if args.command == 'init':
-            print("First time setup")
-            print("Set your master password (remember it, it cannot be recovered)")
-            password = getpass.getpass("Master password: ")
-            confirm = getpass.getpass("Confirm master password: ")
-            client.init(password, confirm)
-            success = True
+            success = client.interactive_init()
 
         elif args.command == 'login':
             success = client.interactive_login()
@@ -117,42 +113,19 @@ Session Management:
             success = client.logout()
 
         elif args.command == 'status':
-            status_result = client.status()
-            if 'authenticated' in status_result:
-                if status_result['authenticated']:
-                    print("Authenticated")
-                else:
-                    print("Not authenticated, login first")
-            else:
-                print("Status check failed")
-            success = True
+            success = client.interactive_status()
 
         elif args.command == 'add':
             success = client.interactive_add(args.site, args.username)
 
         elif args.command == 'get':
-            result = client.get(args.site)
-            if result:
-                print(f"Site: {result['site']}")
-                print(f"Username: {result['username']}")
-                print(f"Password: {result['password']}")
-                success = True
-            else:
-                print(f"Error: Site '{args.site}' not found")
-                success = False
+            success = client.interactive_get(args.site, args.username)
 
         elif args.command == 'list':
-            entries = client.list()
-            if entries:
-                print("Saved sites:")
-                for site, username in entries.items():
-                    print(f"  {site}: {username}")
-            else:
-                print("No entries found")
-            success = True
+            success = client.interactive_list()
 
         elif args.command == 'delete':
-            success = client.interactive_delete(args.site)
+            success = client.interactive_delete(args.site, args.username)
 
         elif args.command == 'gen':
             success = client.interactive_gen(args.site, args.username, args.length)

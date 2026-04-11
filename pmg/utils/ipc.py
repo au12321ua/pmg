@@ -13,7 +13,7 @@ import uuid
 import time
 from typing import Optional, Dict, Any, Callable
 from enum import Enum
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 
 class MessageType(Enum):

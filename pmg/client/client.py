@@ -4,15 +4,13 @@
 
 import os
 import sys
-import json
 import logging
-import getpass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import uuid
 
-from .daemon import DaemonManager
-from .ipc import IPCClient, Message, MessageType
-from .crypto import CryptoManager
+from ..daemon.daemon import DaemonManager
+from ..utils.ipc import IPCClient, Message, MessageType
+from ..utils.crypto import CryptoManager
 
 
 class PMGClientError(Exception):
@@ -236,15 +234,25 @@ class PMGClient:
             self.logger.error(f"Add failed: {e}")
             return False
 
-    def get(self, site: str) -> Optional[Dict[str, str]]:
+    def get(self, site: str, username: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """获取密码"""
         try:
-            result = self._send_command('get', {'site': site})
+            args = {'site': site}
+            if username:
+                args['username'] = username
+
+            result = self._send_command('get', args)
             if result.get('success'):
                 return {
                     'site': result.get('site'),
                     'username': result.get('username'),
                     'password': result.get('password')
+                }
+            if result.get('ambiguous'):
+                return {
+                    'site': site,
+                    'ambiguous': True,
+                    'candidates': result.get('candidates', [])
                 }
             else:
                 return None
@@ -252,7 +260,7 @@ class PMGClient:
             self.logger.error(f"Get failed: {e}")
             return None
 
-    def list(self) -> Dict[str, str]:
+    def list(self) -> Dict[str, List[str]]:
         """列出所有站点"""
         try:
             result = self._send_command('list', {})
@@ -264,14 +272,17 @@ class PMGClient:
             self.logger.error(f"List failed: {e}")
             return {}
 
-    def delete(self, site: str) -> bool:
+    def delete(self, site: str, username: Optional[str] = None) -> Dict[str, Any]:
         """删除站点"""
         try:
-            result = self._send_command('delete', {'site': site})
-            return result.get('success', False)
+            args = {'site': site}
+            if username:
+                args['username'] = username
+            result = self._send_command('delete', args)
+            return result
         except PMGClientError as e:
             self.logger.error(f"Delete failed: {e}")
-            return False
+            return {'success': False, 'error': str(e)}
 
     def gen(self, site: str, username: str, length: int = 16) -> Optional[str]:
         """生成并保存密码"""
@@ -337,57 +348,3 @@ class PMGClient:
         self.close()
 
 
-class InteractivePMGClient(PMGClient):
-    """交互式客户端，提供更友好的用户交互"""
-
-    def interactive_login(self) -> bool:
-        """交互式登录"""
-        print("Login to PMG")
-        password = getpass.getpass("Master password: ")
-        return self.login(password)
-
-    def interactive_add(self, site: str, username: str) -> bool:
-        """交互式添加密码"""
-        print(f"Adding entry for {site}")
-        password = getpass.getpass(f"Password for {site}: ")
-        if not password:
-            print("Error: Password cannot be empty")
-            return False
-
-        confirm = getpass.getpass(f"Confirm password for {site}: ")
-        if password != confirm:
-            print("Error: Passwords do not match")
-            return False
-
-        return self.add(site, username, password)
-
-    def interactive_gen(self, site: str, username: str, length: int = 16) -> bool:
-        """交互式生成密码"""
-        print(f"Generating password for {site}")
-
-        result = self.gen(site, username, length)
-        if result:
-            print(f"Generated password: {result}")
-            print(f"Saved to {site}")
-            return True
-        else:
-            print(f"Failed to save to {site}")
-            return False
-
-    def interactive_change_password(self) -> bool:
-        """交互式更改主密码"""
-        print("Change master password")
-        current = getpass.getpass("Current password: ")
-        new_password = getpass.getpass("New password: ")
-        confirm = getpass.getpass("Confirm new password: ")
-
-        return self.change_password(current, new_password, confirm)
-    
-    def interactive_delete(self, site) -> bool:
-        """交互式删除密码"""
-        confirm = input(f"Delete '{site}'? (y/N): ").strip().lower()
-        if confirm != 'y':
-            print("Cancelled")
-            return True
-        else:
-            return self.delete(site)

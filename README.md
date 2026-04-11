@@ -35,14 +35,17 @@ pmg init
 
 ### Basic workflow
 ```bash
-# Login (session lasts 1 hour)
-pmg login your_master_password
+# Login
+pmg login
 
 # Add a password
 pmg add github your_email@example.com
 
+# Add another account under same site
+pmg add github your_work_email@example.com
+
 # Get a password
-pmg get github
+pmg get github your_email@example.com
 
 # Generate and save a password
 pmg gen google your_email@example.com
@@ -64,14 +67,32 @@ pmg login <password>        # Login with master password
 pmg logout                  # Logout
 pmg status                  # Check login status
 pmg add <site> <username>   # Add password for a site
-pmg get <site>              # Get password for a site
-pmg list                    # List all sites
-pmg delete <site>           # Delete a site
+pmg get <site> [username]   # Get password for a site/user
+pmg list                    # List all sites and usernames
+pmg delete <site> [username]# Delete a site/user
 pmg gen <site> <username>   # Generate and save password
 pmg export <file>           # Export data to file
 pmg import <file>           # Import data from file
 pmg change-password         # Change master password
 ```
+
+## Storage model
+
+Passwords are stored by `site + username`:
+
+```json
+{
+	"site-1": {
+		"username-1": {
+			"password": "...",
+			"created_at": "...",
+			"updated_at": "..."
+		}
+	}
+}
+```
+
+When `get` or `delete` is called with only `site` and multiple usernames exist, PMG will ask you to choose a username.
 
 ## Security
 

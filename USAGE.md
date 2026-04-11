@@ -52,12 +52,14 @@ pmg add github your_email@example.com
 
 ### 4. 获取密码
 ```bash
-pmg get <site_name>
+pmg get <site_name> [username]
 ```
 例如：
 ```bash
-pmg get github
+pmg get github your_email@example.com
 ```
+
+如果同一站点下有多个用户名，未提供 `username` 时会提示你选择。
 
 ### 5. 生成密码
 ```bash
@@ -91,9 +93,9 @@ pmg login <password>        # 登录
 pmg logout                  # 登出
 pmg status                  # 查看状态
 pmg add <site> <username>   # 添加密码
-pmg get <site>              # 获取密码
-pmg list                    # 列出所有站点
-pmg delete <site>           # 删除站点
+pmg get <site> [username]   # 获取密码
+pmg list                    # 按站点列出所有用户名
+pmg delete <site> [username]# 删除指定站点用户名
 pmg gen <site> <username>   # 生成并保存密码
 pmg export <file>           # 导出数据
 pmg import <file>           # 导入数据
@@ -163,8 +165,12 @@ pmg logout
 ```json
 {
   "github": {
-    "username": "your_email@example.com",
-    "password": "your_password"
+    "your_email@example.com": {
+      "password": "your_password"
+    },
+    "work_email@example.com": {
+      "password": "your_work_password"
+    }
   }
 }
 ```

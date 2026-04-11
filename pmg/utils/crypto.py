@@ -8,12 +8,21 @@ import secrets
 import hashlib
 import hmac
 import json
-from typing import Dict, Optional, Tuple
-from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 import argon2
+
+
+class MultipleUsernamesError(Exception):
+    """同一站点存在多个用户名且未指定目标用户名"""
+
+    def __init__(self, site: str, usernames: List[str]):
+        self.site = site
+        self.usernames = usernames
+        super().__init__(f"Multiple usernames found for site '{site}'")
 
 
 class CryptoManager:
@@ -32,7 +41,7 @@ class CryptoManager:
             try:
                 with open(self.config_file, 'r') as f:
                     return json.load(f)
-            except:
+            except Exception:
                 return {}
         return {}
 
@@ -192,28 +201,52 @@ class CryptoManager:
             print(f"Error saving entries: {e}")
             raise
 
+    @staticmethod
+    def _is_entry_record(value: Dict) -> bool:
+        """检查是否为单个用户名条目记录"""
+        return isinstance(value, dict) and 'password' in value
+
+    def _validate_entries_structure(self, entries: Dict):
+        """校验新格式: {site: {username: entry_record}}"""
+        for site, site_data in entries.items():
+            if not isinstance(site_data, dict):
+                raise ValueError(f"Invalid site data for '{site}'")
+
+            # 旧格式检测: {site: {'username': ..., 'password': ...}}
+            if self._is_entry_record(site_data):
+                raise ValueError(
+                    f"Legacy data format detected for site '{site}'. "
+                    "This version only supports site->username->entry format."
+                )
+
+            for username, entry in site_data.items():
+                if not isinstance(username, str):
+                    raise ValueError(f"Invalid username key under site '{site}'")
+                if not self._is_entry_record(entry):
+                    raise ValueError(f"Invalid entry record for '{site}/{username}'")
+
     def _load_entries(self) -> Dict:
         """加载条目"""
-        try:
-            if not os.path.exists(self.data_file):
-                return {}
-
-            with open(self.data_file, 'rb') as f:
-                data = f.read()
-
-            if len(data) < 12:
-                return {}
-
-            nonce = data[:12]
-            ciphertext = data[12:]
-
-            # 解密数据
-            json_data = self._decrypt_data(nonce, ciphertext)
-            return json.loads(json_data.decode())
-
-        except Exception as e:
-            print(f"Error loading entries: {e}")
+        if not os.path.exists(self.data_file):
             return {}
+
+        with open(self.data_file, 'rb') as f:
+            data = f.read()
+
+        if len(data) < 12:
+            return {}
+
+        nonce = data[:12]
+        ciphertext = data[12:]
+
+        # 解密数据
+        json_data = self._decrypt_data(nonce, ciphertext)
+        entries = json.loads(json_data.decode())
+        if not isinstance(entries, dict):
+            raise ValueError("Invalid encrypted entries format")
+
+        self._validate_entries_structure(entries)
+        return entries
 
     def add_entry(self, site: str, username: str, password: str) -> bool:
         """添加条目"""
@@ -223,11 +256,14 @@ class CryptoManager:
             # 加密密码
             encrypted_password = self._encrypt_password(password)
 
-            entries[site] = {
-                'username': username,
+            site_entries = entries.setdefault(site, {})
+            current_entry = site_entries.get(username, {})
+            now = datetime.now().isoformat()
+
+            site_entries[username] = {
                 'password': encrypted_password,
-                'created_at': datetime.now().isoformat(),
-                'updated_at': datetime.now().isoformat()
+                'created_at': current_entry.get('created_at', now),
+                'updated_at': now
             }
 
             self._save_entries(entries)
@@ -237,7 +273,7 @@ class CryptoManager:
             print(f"Error: {e}")
             return False
 
-    def get_entry(self, site: str) -> Optional[Tuple[str, str]]:
+    def get_entry(self, site: str, username: Optional[str] = None) -> Optional[Tuple[str, str]]:
         """获取条目"""
         try:
             entries = self._load_entries()
@@ -245,23 +281,39 @@ class CryptoManager:
             if site not in entries:
                 return None
 
-            entry = entries[site]
+            site_entries = entries[site]
+            if username is None:
+                usernames = sorted(site_entries.keys())
+                if len(usernames) == 1:
+                    username = usernames[0]
+                else:
+                    raise MultipleUsernamesError(site, usernames)
+
+            entry = site_entries.get(username)
+            if not entry:
+                return None
+
             password = self._decrypt_password(entry['password'])
 
-            return entry['username'], password
+            return username, password
 
+        except MultipleUsernamesError:
+            raise
         except Exception:
             return None
 
-    def list_entries(self) -> Dict[str, str]:
+    def list_entries(self) -> Dict[str, List[str]]:
         """列出所有条目"""
         try:
             entries = self._load_entries()
-            return {site: entry['username'] for site, entry in entries.items()}
+            return {
+                site: sorted(site_entries.keys())
+                for site, site_entries in entries.items()
+            }
         except Exception:
             return {}
 
-    def delete_entry(self, site: str) -> bool:
+    def delete_entry(self, site: str, username: Optional[str] = None) -> bool:
         """删除条目"""
         try:
             entries = self._load_entries()
@@ -269,10 +321,26 @@ class CryptoManager:
             if site not in entries:
                 return False
 
-            del entries[site]
+            site_entries = entries[site]
+            if username is None:
+                usernames = sorted(site_entries.keys())
+                if len(usernames) == 1:
+                    username = usernames[0]
+                else:
+                    raise MultipleUsernamesError(site, usernames)
+
+            if username not in site_entries:
+                return False
+
+            del site_entries[username]
+            if not site_entries:
+                del entries[site]
+
             self._save_entries(entries)
             return True
 
+        except MultipleUsernamesError:
+            raise
         except Exception as e:
             print(f"Error: {e}")
             return False

@@ -7,17 +7,12 @@ import sys
 import json
 import time
 import signal
-import socket
-import struct
-import threading
 import subprocess
 import tempfile
-from typing import Optional, Dict, Any, Callable
-from dataclasses import dataclass, asdict
+from typing import Optional, Dict, Any
+from dataclasses import dataclass
 from enum import Enum
 import logging
-
-from .crypto import CryptoManager
 
 
 class DaemonStatus(Enum):
@@ -146,7 +141,7 @@ class DaemonManager:
         # 启动守护进程子进程
         try:
             # 使用当前Python解释器以模块方式启动守护进程
-            cmd = [sys.executable, "-m", "pmg.daemon_main", "--data-dir", self.data_dir, "--socket-path", socket_path]
+            cmd = [sys.executable, "-m", "pmg.daemon.daemon_main", "--data-dir", self.data_dir, "--socket-path", socket_path]
 
             # 在后台启动进程
             process = subprocess.Popen(
@@ -304,9 +299,6 @@ class DaemonMain:
         signal.signal(signal.SIGINT, self._handle_signal)
 
         self.logger.info("Daemon main loop started")
-
-        # 初始化管理器
-        # TODO: 初始化SessionManager和CryptoManager
 
         # 主循环
         while self.running:
